@@ -4,3 +4,6 @@
 [submodule "modules/wayland"]
 	path = modules/wayland
 	url = git@github.com:mkeed/wayland.git
+[submodule "modules/xml"]
+	path = modules/xml
+	url = git@github.com:mkeed/xml.git
