@@ -9,10 +9,11 @@ pub fn main() !void {
 
     //try app.run(alloc, &.{});
 
-    var ed = try app.App.init(alloc, &.{});
-    defer ed.deinit();
-
     var loop = ev.EventLoop.init(alloc);
     defer loop.deinit();
+    var ed = try app.App.init(alloc, &.{});
+    try ed.addEventHandler(&loop);
+    defer ed.deinit();
+
     try loop.run();
 }

@@ -1,5 +1,7 @@
 const std = @import("std");
 const buffer = @import("Buffer.zig");
+const ev = @import("EventLoop.zig");
+
 pub const InitOption = union(enum) {
     openFile: []const u8,
 };
@@ -39,5 +41,18 @@ pub const App = struct {
     pub fn deinit(self: App) void {
         std.os.tcsetattr(infd, .FLUSH, self.tc) catch {};
         _ = std.os.write(outfd, "\x1b[?1049l") catch {};
+    }
+    fn infunc(self: ?*anyopaque, event: *ev.EventLoop, fd: std.os.fd_t) ev.EventFnError!void {
+        _ = self;
+        var readBuf: [512]u8 = undefined;
+        const len = std.os.read(fd, &readBuf) catch return;
+        for (readBuf[0..len]) |val| {
+            if (val == 'q') {
+                event.exit = true;
+            } else _ = std.os.write(outfd, &[1]u8{val}) catch return;
+        }
+    }
+    pub fn addEventHandler(self: *App, event: *ev.EventLoop) !void {
+        try event.add(.{ .inFn = &infunc, .fd = infd, .ctx = self });
     }
 };

@@ -4,11 +4,11 @@ pub const EventFnError = error{Fatal};
 pub const EventFn = fn (ctx: ?*anyopaque, ev: *EventLoop, fd: std.os.fd_t) EventFnError!void;
 
 pub const EventHandler = struct {
-    inFn: ?*const EventFn,
-    outFn: ?*const EventFn,
-    errFn: ?*const EventFn,
-    hupFn: ?*const EventFn,
-    cleanUpFn: ?*const EventFn,
+    inFn: ?*const EventFn = null,
+    outFn: ?*const EventFn = null,
+    errFn: ?*const EventFn = null,
+    hupFn: ?*const EventFn = null,
+    cleanUpFn: ?*const EventFn = null,
     fd: std.os.fd_t,
     ctx: *anyopaque,
 };
@@ -32,14 +32,15 @@ pub const EventLoop = struct {
             }
         }
         self.events.deinit();
+        self.pollfds.deinit();
     }
     pub fn add(self: *EventLoop, handler: EventHandler) !void {
         try self.events.append(handler);
     }
-    pub fn remove(self: *EventLoop, fd: std.os.fd_t, ctx: *anyopaque) void {
+    pub fn remove(self: *EventLoop, fd: std.os.fd_t) void {
         //
         for (self.events.items) |ev, idx| {
-            if (ev.fd == fd and ev.ctx == ctx) {
+            if (ev.fd == fd) {
                 _ = self.events.swapRemove(idx);
                 return;
             }
@@ -50,13 +51,32 @@ pub const EventLoop = struct {
     }
     pub fn run(self: *EventLoop) !void {
         while (!self.exit) {
-            //
-            return;
-
-            // var polls = [1]std.os.pollfd{
-            //     .{ .fd = infd, .events = std.os.POLL.IN, .revents = 0 },
-            // };
-            // _ = try std.os.poll(&polls, -1);
+            self.pollfds.clearRetainingCapacity();
+            for (self.events.items) |ev| {
+                try self.pollfds.append(.{ .fd = ev.fd, .events = std.os.POLL.IN, .revents = 0 });
+            }
+            const len = try std.os.poll(self.pollfds.items, -1);
+            if (len == 0) continue;
+            for (self.pollfds.items) |poll| {
+                if (poll.revents & std.os.POLL.IN != 0) {
+                    for (self.events.items) |handler| {
+                        if (handler.fd == poll.fd) {
+                            if (handler.inFn) |func| {
+                                func(handler.ctx, self, handler.fd) catch |err| {
+                                    switch (err) {
+                                        EventFnError.Fatal => {
+                                            self.exit = true;
+                                        },
+                                    }
+                                };
+                            } else {
+                                std.log.err("No handler function but events being called removing from list", .{});
+                                self.remove(handler.fd);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 };
