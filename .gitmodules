@@ -1,3 +1,6 @@
 [submodule "modules/image"]
 	path = modules/image
 	url = git@github.com:mkeed/image.git
+[submodule "modules/wayland"]
+	path = modules/wayland
+	url = git@github.com:mkeed/wayland.git
