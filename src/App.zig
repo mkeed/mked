@@ -8,8 +8,13 @@ pub const InitOption = union(enum) {
 
 pub const KeyCode = enum { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, Home, Insert, Delete, End, PgUp, PgDn, F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, Up, Down, Left, Right, At, LeftBracket, Backslash, RightBracket, Caret, Backtick, Ins, Del, Win, Apps, Space, Exclamation, DoubleQuote, SingleQuote, Hash, Dollar, Percent, Ambersand, OpenParen, CloseParen, Asterisk, Comma, Hyphen, Dot, ForwardSlash, Zero, One, Two, Three, Four, Five, Six, Seven, Eight, Nine, Colon, SemiColon, LeftAngle, RightAngle, Equal, QuestionMark, OpenBracket, CloseBracket, OpenBrace, CloseBrace, Pipe, Tilde, Add, Minus, Underscore, Esc, Enter, Tab };
 
-const VMIN = 9;
-const VTIME = 17;
+pub const MenuItem = struct {};
+
+//pub const
+
+pub const Screen = struct {
+    menuLine: std.ArrayList(MenuItem),
+};
 
 pub const KeyboardEvent = struct {
     ctrl: bool = false,
@@ -42,41 +47,51 @@ pub const InputEvent = union(enum) {
     mouse: MouseEvent,
 };
 
+pub const GUIImpl = union(enum) {
+    term: *term.TerminalIO,
+
+    pub fn init(alloc: std.mem.Allocator, inputQueue: *std.ArrayList(InputEvent)) !GUIImpl {
+        return .{
+            .term = try term.TerminalIO.init(alloc, inputQueue),
+        };
+    }
+    pub fn deinit(self: GUIImpl) void {
+        switch (self) {
+            .term => |t| {
+                t.deinit();
+            },
+        }
+    }
+    pub fn addHandler(self: GUIImpl, event: *ev.EventLoop) !void {
+        switch (self) {
+            .term => |t| {
+                try t.addEventHandler(event);
+            },
+        }
+    }
+};
+
 pub const App = struct {
-    tc: std.os.termios,
     alloc: std.mem.Allocator,
     initvals: []const InitOption,
-    outwriter: std.fs.File.Writer,
-    inputQueue: std.ArrayList(InputEvent),
+    inputQueue: *std.ArrayList(InputEvent),
     buffers: std.ArrayList(buffer.Buffer),
     dir: std.fs.Dir,
-    const infd = std.os.STDIN_FILENO;
-    const outfd = std.os.STDOUT_FILENO;
+    impl: GUIImpl,
     pub fn init(alloc: std.mem.Allocator, initvals: []const InitOption) !App {
-        const tc = try std.os.tcgetattr(infd);
-        var newtc = tc;
-        newtc.iflag &= ~(std.os.linux.BRKINT | std.os.linux.ICRNL | std.os.linux.INPCK | std.os.linux.ISTRIP | std.os.linux.IXON);
-        newtc.oflag &= ~(std.os.linux.OPOST);
-        newtc.cflag |= std.os.linux.CS8;
-        newtc.lflag &= ~(std.os.linux.ECHO | std.os.linux.ICANON | std.os.linux.IEXTEN | std.os.linux.ISIG);
-        newtc.cc[VMIN] = 1;
-        try std.os.tcsetattr(infd, .FLUSH, newtc);
-        errdefer {
-            std.os.tcsetattr(infd, .FLUSH, tc) catch {};
-        }
-        _ = try std.os.write(outfd, "\x1b[?1049h\x1b[?1002h");
-        errdefer {
-            _ = std.os.write(outfd, "\x1b[?1049l\x1b[?1002l") catch {};
-        }
-        _ = try std.os.write(outfd, "test1");
+        var inputQueue = try alloc.create(std.ArrayList(InputEvent));
+        errdefer alloc.destroy(inputQueue);
+        inputQueue.* = std.ArrayList(InputEvent).init(alloc);
+        errdefer inputQueue.deinit();
+        var impl = try GUIImpl.init(alloc, inputQueue);
+        errdefer impl.deinit();
         var a = App{
-            .tc = tc,
             .alloc = alloc,
             .initvals = initvals,
-            .outwriter = std.io.getStdOut().writer(),
-            .inputQueue = std.ArrayList(InputEvent).init(alloc),
+            .inputQueue = inputQueue,
             .buffers = std.ArrayList(buffer.Buffer).init(alloc),
             .dir = std.fs.cwd(),
+            .impl = impl,
         };
 
         for (initvals) |iv| {
@@ -93,36 +108,30 @@ pub const App = struct {
         return a;
     }
     pub fn deinit(self: App) void {
-        std.os.tcsetattr(infd, .FLUSH, self.tc) catch {};
-        _ = std.os.write(outfd, "\x1b[?1049l\x1b[?1002l") catch {};
         self.inputQueue.deinit();
+        self.alloc.destroy(self.inputQueue);
         for (self.buffers.items) |b| {
             b.deinit();
         }
         self.buffers.deinit();
+        self.impl.deinit();
     }
-    fn infunc(ctx: ?*anyopaque, event: *ev.EventLoop, fd: std.os.fd_t) ev.EventFnError!void {
-        var self: *App = @ptrCast(*App, @alignCast(@alignOf(App), ctx orelse return));
-        var readBuf: [512]u8 = undefined;
-        const len = std.os.read(fd, &readBuf) catch return;
-        std.fmt.format(self.outwriter, "[{}]", .{std.fmt.fmtSliceHexUpper(readBuf[0..len])}) catch return;
-        _ = event;
-        term.read(readBuf[0..len], &self.inputQueue) catch return;
-    }
+
     pub fn addEventHandler(self: *App, event: *ev.EventLoop) !void {
-        try event.add(.{ .inFn = &infunc, .fd = infd, .ctx = self });
+        try self.impl.addHandler(event);
     }
     pub fn processEvents(self: *App) !bool {
-        try std.fmt.format(self.outwriter, "\x1b[2J\x1b[H\x1b[?25l", .{});
+        var outwriter = std.io.getStdOut().writer();
+        try std.fmt.format(outwriter, "\x1b[2J\x1b[H\x1b[?25l", .{});
         defer {
-            std.fmt.format(self.outwriter, "\x1b[?25h", .{}) catch {};
+            std.fmt.format(outwriter, "\x1b[?25h", .{}) catch {};
         }
         var result = false;
         defer {
             self.inputQueue.clearRetainingCapacity();
         }
         for (self.inputQueue.items) |item| {
-            try std.fmt.format(self.outwriter, "\r\n{}", .{item});
+            try std.fmt.format(outwriter, "\r\n{}", .{item});
             switch (item) {
                 .keyboard => |k| {
                     if (k.key == .Q) result = true;
@@ -131,9 +140,9 @@ pub const App = struct {
             }
         }
         for (self.buffers.items) |b| {
-            try std.fmt.format(self.outwriter, "<====={s}====>", .{b.name.items});
+            try std.fmt.format(outwriter, "<====={s}====>", .{b.name.items});
             for (b.lines.items) |line, idx| {
-                try std.fmt.format(self.outwriter, "\r\n{:>2}|{s}", .{ idx, line.items });
+                try std.fmt.format(outwriter, "\r\n{:>2}|{s}", .{ idx, line.items });
             }
         }
         return result;

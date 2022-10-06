@@ -1,6 +1,6 @@
 const std = @import("std");
 const App = @import("../App.zig");
-
+const ev = @import("../EventLoop.zig");
 const TerminalCode = struct {
     seq: []const u8,
     key: App.InputEvent,
@@ -283,6 +283,8 @@ const AsciiToKeyCode = [0x80]App.InputEvent{
     .{ .keyboard = .{ .ctrl = false, .shift = false, .alt = false, .key = .Tilde } },
     .{ .keyboard = .{ .ctrl = false, .shift = false, .alt = false, .key = .Esc } },
 };
+const VMIN = 9;
+const VTIME = 17;
 
 pub fn decodeMouse(data: []const u8, len: *usize) App.InputEvent {
     const cb = data[0];
@@ -344,3 +346,57 @@ pub fn read(input: []const u8, output: *std.ArrayList(App.InputEvent)) !void {
         }
     }
 }
+
+pub const TerminalIO = struct {
+    alloc: std.mem.Allocator,
+    tc: std.os.termios,
+    inputQueue: *std.ArrayList(App.InputEvent),
+    outwriter: std.fs.File.Writer,
+    const infd = std.os.STDIN_FILENO;
+    const outfd = std.os.STDOUT_FILENO;
+    pub fn init(
+        alloc: std.mem.Allocator,
+        inputQueue: *std.ArrayList(App.InputEvent),
+    ) !*TerminalIO {
+        var self = try alloc.create(TerminalIO);
+        errdefer alloc.destroy(self);
+        const tc = try std.os.tcgetattr(infd);
+        var newtc = tc;
+        newtc.iflag &= ~(std.os.linux.BRKINT | std.os.linux.ICRNL | std.os.linux.INPCK | std.os.linux.ISTRIP | std.os.linux.IXON);
+        newtc.oflag &= ~(std.os.linux.OPOST);
+        newtc.cflag |= std.os.linux.CS8;
+        newtc.lflag &= ~(std.os.linux.ECHO | std.os.linux.ICANON | std.os.linux.IEXTEN | std.os.linux.ISIG);
+        newtc.cc[VMIN] = 1;
+        try std.os.tcsetattr(infd, .FLUSH, newtc);
+        errdefer {
+            std.os.tcsetattr(infd, .FLUSH, tc) catch {};
+        }
+        _ = try std.os.write(outfd, "\x1b[?1049h\x1b[?1002h");
+        errdefer {
+            _ = std.os.write(outfd, "\x1b[?1049l\x1b[?1002l") catch {};
+        }
+        self.* = TerminalIO{
+            .alloc = alloc,
+            .tc = tc,
+            .inputQueue = inputQueue,
+            .outwriter = std.io.getStdOut().writer(),
+        };
+        return self;
+    }
+    pub fn deinit(self: *TerminalIO) void {
+        _ = std.os.write(outfd, "\x1b[?1049l\x1b[?1002l") catch {};
+        std.os.tcsetattr(infd, .FLUSH, self.tc) catch {};
+        self.alloc.destroy(self);
+    }
+    pub fn addEventHandler(self: *TerminalIO, event: *ev.EventLoop) !void {
+        try event.add(.{ .inFn = &infunc, .fd = infd, .ctx = self });
+    }
+    fn infunc(ctx: ?*anyopaque, event: *ev.EventLoop, fd: std.os.fd_t) ev.EventFnError!void {
+        var self: *TerminalIO = @ptrCast(*TerminalIO, @alignCast(@alignOf(TerminalIO), ctx orelse return));
+        var readBuf: [512]u8 = undefined;
+        const len = std.os.read(fd, &readBuf) catch return;
+        std.fmt.format(self.outwriter, "[{}]", .{std.fmt.fmtSliceHexUpper(readBuf[0..len])}) catch return;
+        _ = event;
+        read(readBuf[0..len], self.inputQueue) catch return;
+    }
+};
