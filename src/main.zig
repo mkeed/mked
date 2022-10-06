@@ -9,7 +9,7 @@ pub fn main() !void {
 
     //try app.run(alloc, &.{});
 
-    var ed = try app.App.init(alloc, &.{});
+    var ed = try app.App.init(alloc, &.{.{ .openFile = "LICENSE" }});
     defer ed.deinit();
 
     var loop = try ev.EventLoop.init(alloc, &ed);
