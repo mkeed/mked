@@ -289,6 +289,7 @@ pub fn decodeMouse(data: []const u8, len: *usize) App.InputEvent {
     const cx = data[1];
     const cy = data[2];
     len.* = 3;
+
     return .{ .mouse = .{ .button = cb & 0b11, .x = cx - 32, .y = cy - 32 } };
 }
 

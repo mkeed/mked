@@ -5,6 +5,7 @@ const term = @import("App/terminal.zig");
 pub const InitOption = union(enum) {
     openFile: []const u8,
 };
+
 pub const KeyCode = enum {
     A,
     B,
@@ -117,6 +118,7 @@ pub const KeyCode = enum {
     Enter,
     Tab,
 };
+
 const VMIN = 9;
 const VTIME = 17;
 
@@ -138,6 +140,7 @@ pub const MouseEvent = struct {
     x: usize,
     y: usize,
 };
+
 pub const KeyEvent = enum {
     Up,
     Down,
