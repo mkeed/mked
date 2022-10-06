@@ -1,5 +1,5 @@
 const std = @import("std");
-
+const App = @import("App.zig");
 pub const EventFnError = error{Fatal};
 pub const EventFn = fn (ctx: ?*anyopaque, ev: *EventLoop, fd: std.os.fd_t) EventFnError!void;
 
@@ -17,13 +17,19 @@ pub const EventLoop = struct {
     alloc: std.mem.Allocator,
     events: std.ArrayList(EventHandler),
     pollfds: std.ArrayList(std.os.pollfd),
+    app: *App.App,
     exit: bool = false,
-    pub fn init(alloc: std.mem.Allocator) EventLoop {
-        return EventLoop{
+    pub fn init(alloc: std.mem.Allocator, app: *App.App) !EventLoop {
+        var ev = EventLoop{
             .alloc = alloc,
             .events = std.ArrayList(EventHandler).init(alloc),
             .pollfds = std.ArrayList(std.os.pollfd).init(alloc),
+            .app = app,
         };
+
+        try ev.app.addEventHandler(&ev);
+
+        return ev;
     }
     pub fn deinit(self: *EventLoop) void {
         for (self.events.items) |ev| {
@@ -76,6 +82,9 @@ pub const EventLoop = struct {
                         }
                     }
                 }
+            }
+            if (try self.app.processEvents()) {
+                self.exit = true;
             }
         }
     }
