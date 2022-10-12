@@ -2,19 +2,12 @@ const std = @import("std");
 const buffer = @import("Buffer.zig");
 const ev = @import("EventLoop.zig");
 const term = @import("App/terminal.zig");
+const Screen = @import("Screen.zig");
 pub const InitOption = union(enum) {
     openFile: []const u8,
 };
 
 pub const KeyCode = enum { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, Home, Insert, Delete, End, PgUp, PgDn, F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, Up, Down, Left, Right, At, LeftBracket, Backslash, RightBracket, Caret, Backtick, Ins, Del, Win, Apps, Space, Exclamation, DoubleQuote, SingleQuote, Hash, Dollar, Percent, Ambersand, OpenParen, CloseParen, Asterisk, Comma, Hyphen, Dot, ForwardSlash, Zero, One, Two, Three, Four, Five, Six, Seven, Eight, Nine, Colon, SemiColon, LeftAngle, RightAngle, Equal, QuestionMark, OpenBracket, CloseBracket, OpenBrace, CloseBrace, Pipe, Tilde, Add, Minus, Underscore, Esc, Enter, Tab };
-
-pub const MenuItem = struct {};
-
-//pub const
-
-pub const Screen = struct {
-    menuLine: std.ArrayList(MenuItem),
-};
 
 pub const KeyboardEvent = struct {
     ctrl: bool = false,
@@ -66,6 +59,18 @@ pub const GUIImpl = union(enum) {
         switch (self) {
             .term => |t| {
                 try t.addEventHandler(event);
+            },
+        }
+    }
+    pub fn getSize(self: GUIImpl) !Screen.Rect {
+        return switch (self) {
+            .term => |t| try t.getSize(),
+        };
+    }
+    pub fn drawScreen(self: GUIImpl, screen: Screen.Screen) !void {
+        switch (self) {
+            .term => |t| {
+                try t.drawScreen(screen);
             },
         }
     }
@@ -121,17 +126,11 @@ pub const App = struct {
         try self.impl.addHandler(event);
     }
     pub fn processEvents(self: *App) !bool {
-        var outwriter = std.io.getStdOut().writer();
-        try std.fmt.format(outwriter, "\x1b[2J\x1b[H\x1b[?25l", .{});
-        defer {
-            std.fmt.format(outwriter, "\x1b[?25h", .{}) catch {};
-        }
         var result = false;
         defer {
             self.inputQueue.clearRetainingCapacity();
         }
         for (self.inputQueue.items) |item| {
-            try std.fmt.format(outwriter, "\r\n{}", .{item});
             switch (item) {
                 .keyboard => |k| {
                     if (k.key == .Q) result = true;
@@ -139,12 +138,8 @@ pub const App = struct {
                 else => {},
             }
         }
-        for (self.buffers.items) |b| {
-            try std.fmt.format(outwriter, "<====={s}====>", .{b.name.items});
-            for (b.lines.items) |line, idx| {
-                try std.fmt.format(outwriter, "\r\n{:>2}|{s}", .{ idx, line.items });
-            }
-        }
+        _ = try self.impl.getSize();
+        try self.impl.drawScreen(Screen.ExampleScreen);
         return result;
     }
 };

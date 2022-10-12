@@ -1,6 +1,8 @@
 const std = @import("std");
 const App = @import("../App.zig");
 const ev = @import("../EventLoop.zig");
+const Screen = @import("../Screen.zig");
+const colour = @import("../Colour.zig");
 const TerminalCode = struct {
     seq: []const u8,
     key: App.InputEvent,
@@ -399,4 +401,64 @@ pub const TerminalIO = struct {
         _ = event;
         read(readBuf[0..len], self.inputQueue) catch return;
     }
+    pub fn drawScreen(self: *TerminalIO, screen: Screen.Screen) !void {
+        var outputBuf = try std.ArrayList(u8).initCapacity(self.alloc, 4096);
+        defer outputBuf.deinit();
+        var writer = outputBuf.writer();
+
+        //clear screen go Home turn off cursor
+        try std.fmt.format(self.outwriter, "\x1b[2J\x1b[H\x1b[?25l", .{});
+        defer {
+            //re enable cursor
+            std.fmt.format(self.outwriter, "\x1b[?25h", .{}) catch {};
+        }
+        try formatLine(writer, screen.menuLine.items, .NewLine);
+        for (screen.views) |view| {
+            for (view.lines) |viewLine| {
+                try formatLine(writer, viewLine.items, .NewLine);
+            }
+            try formatLine(writer, view.viewLine, .NewLine);
+        }
+        try self.outwriter.writeAll(outputBuf.items);
+    }
+    pub fn getSize(self: *TerminalIO) !Screen.Rect {
+        _ = self;
+        var wsz: std.os.linux.winsize = undefined;
+        if (std.os.system.ioctl(infd, std.os.linux.T.IOCGWINSZ, @ptrToInt(&wsz)) != 0) {
+            return error.IoctlFailed;
+        }
+        std.log.info("getSize:{}", .{wsz});
+        return .{ .width = wsz.ws_col, .height = wsz.ws_col };
+    }
 };
+
+const EndLine = enum {
+    NoNewLine,
+    NewLine,
+};
+
+fn formatLine(writer: anytype, items: []const Screen.Symbol, endl: EndLine) !void {
+    for (items) |li| {
+        const face = colour.Faces[li.face];
+        try setColour(writer, face.fore, face.back);
+        try std.fmt.format(writer, "{s}", .{li.text});
+        try clearColour(writer);
+    }
+    if (endl == .NewLine) {
+        try std.fmt.format(writer, "\r\n", .{});
+    }
+}
+
+fn clearColour(writer: anytype) !void {
+    try std.fmt.format(writer, "\x1b[0m", .{});
+}
+fn setColour(writer: anytype, fg: colour.Colour, bg: colour.Colour) !void {
+    try std.fmt.format(writer, "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m", .{
+        fg.red,
+        fg.green,
+        fg.blue,
+        bg.red,
+        bg.green,
+        bg.blue,
+    });
+}
