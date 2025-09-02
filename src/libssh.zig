@@ -1,6 +1,7 @@
 const std = @import("std");
 const ssh = @cImport({
     @cInclude("libssh/libssh.h");
+    @cInclude("libssh/sftp.h");
 });
 
 pub const SSHOpts = struct {
@@ -40,6 +41,7 @@ pub fn run(opts: SSHOpts) !void {
         },
     }
     try show_remote_processes(session);
+    try sftp_helloworld(session);
 }
 
 fn show_remote_processes(session: ssh.ssh_session) !void {
@@ -59,14 +61,22 @@ fn show_remote_processes(session: ssh.ssh_session) !void {
     var buffer: [4096]u8 = undefined;
     var nbytes = ssh.ssh_channel_read(channel, &buffer, buffer.len, 0);
     while (nbytes > 0) {
-        std.log.info("Read:[{s}]", .{buffer[0..nbytes]});
+        std.log.info("Read:[{}]", .{nbytes});
 
         nbytes = ssh.ssh_channel_read(channel, &buffer, buffer.len, 0);
     }
 
-    ssh.ssh_channel_send_eof(channel);
-    ssh.ssh_channel_close(channel);
-    ssh.ssh_channel_free(channel);
+    _ = ssh.ssh_channel_send_eof(channel);
 
-    return ssh.SSH_OK;
+    return;
+}
+
+fn sftp_helloworld(session: ssh.ssh_session) !void {
+    const sftp = ssh.sftp_new(session) orelse return error.FailedToAllocate;
+    defer ssh.sftp_free(sftp);
+
+    if (ssh.sftp_init(sftp) != ssh.SSH_OK) {
+        std.log.err("Error initializing SFTP session: code {}", .{ssh.sftp_get_error(sftp)});
+        return error.FailedToInitsftp;
+    }
 }
