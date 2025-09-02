@@ -40,7 +40,7 @@ pub fn build(b: *std.Build) void {
         // which requires us to specify a target.
         .target = target,
     });
-
+    //mod.linkSystemLibrary("ssh", .{ .needed = true });
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
     // to the module defined above, it's sometimes preferable to split business
@@ -82,7 +82,9 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-
+    exe.linkSystemLibrary2("ssh", .{ .needed = true });
+    //exe.linkSystemLibrary2("pq", .{ .needed = true });
+    exe.linkLibC();
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
     // step). By default the install prefix is `zig-out/` but can be overridden

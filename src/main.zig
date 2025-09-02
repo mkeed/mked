@@ -1,10 +1,13 @@
 const std = @import("std");
 const mked = @import("mked");
+const libssh = @import("libssh.zig");
 
 pub fn main() !void {
-    // Prints to stderr, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try mked.bufferedPrint();
+    std.log.info("Running", .{});
+    try libssh.run(.{
+        .host = "192.168.50.229",
+        .auth = .auto,
+    });
 }
 
 test "simple test" {
