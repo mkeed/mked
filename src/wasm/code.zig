@@ -5,7 +5,16 @@ pub const Function = struct {
 };
 
 pub const Block = struct {
-    instructions: []const Instrucion,
+    instructions: []const Instruction,
+};
+
+pub const ValueType = enum { i32, i64, f32, f64 };
+
+pub const Value = union(ValueType) {
+    i32: i32,
+    i64: i64,
+    f32: f32,
+    f64: f64,
 };
 
 pub const BlockIdx = struct { idx: u32 };
@@ -22,4 +31,16 @@ pub const Instruction = union(enum) {
     @"return": void,
     call: struct { func: u32 },
     call_indirect: struct { type: typeidx, table: tableidx },
+
+    constant: Value,
 };
+
+const typeidx = struct { x: i32 };
+const funcidx = struct { x: i32 };
+const tableidx = struct { x: i32 };
+const memidx = struct { x: i32 };
+const globalidx = struct { x: i32 };
+const elemidx = struct { x: i32 };
+const dataidx = struct { x: i32 };
+const localidx = struct { x: i32 };
+const labelidx = struct { x: i32 };

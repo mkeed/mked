@@ -1,3 +1,6 @@
+const std = @import("std");
+const code = @import("code.zig");
+
 //41 01 //i32.const 1
 //21 02 //local.set 2
 //03 40 //loop
@@ -93,3 +96,98 @@ const Instr = enum(u8) {
 
     variable_length = 0xFC,
 };
+
+const Reader = struct {
+    data: []const u8,
+    idx: usize = 0,
+
+    pub fn nextByte(self: *Reader) ?u8 {
+        if (self.idx >= self.data.len) return null;
+        defer self.idx += 1;
+        return self.data[self.idx];
+    }
+    pub fn readByte(self: *Reader) !u8 {
+        return self.nextByte() orelse error.EOF;
+    }
+    pub fn read(self: *Reader, comptime T: type) !T {
+        errdefer std.log.err("Failure Reading [{f}]{s}", .{ self, @typeName(T) });
+        switch (@typeInfo(T)) {
+            .@"enum" => |e| {
+                const val = try self.read(e.tag_type);
+                return try std.meta.intToEnum(T, val);
+            },
+            .int => |i| {
+                if (T == u8) {
+                    return try self.readByte();
+                }
+                switch (i.signedness) {
+                    .unsigned => return try std.leb.readUleb128(T, self),
+                    .signed => return try std.leb.readIleb128(T, self),
+                }
+            },
+            .float => {
+                const bytes = try self.getBytes(@sizeOf(T));
+                const ret: *const T = @ptrCast(&bytes);
+                return ret.*;
+            },
+            else => @compileError("TODO"),
+        }
+    }
+    fn getBytes(self: *Reader, len: usize) ![]const u8 {
+        if (self.idx + len > self.data.len) return error.NotEnough;
+        defer self.idx += len;
+        //std.log.err("[{}|{}]Read[{x}]", .{ self.idx, len, self.data[self.idx..][0..len] });
+        return self.data[self.idx..][0..len];
+    }
+    pub fn format(self: Reader, writer: *std.Io.Writer) !void {
+        try writer.print("[{}][{x}][{x}]", .{
+            self.idx,
+            self.data[0..self.idx],
+            self.data[self.idx..],
+        });
+    }
+};
+
+const Builder = struct {
+    count: usize = 0,
+    pub fn add(self: *Builder, instr: code.Instruction) !void {
+        defer self.count += 1;
+        std.log.err("[{}][{}]", .{ self.count, instr });
+    }
+};
+
+pub fn parse(data: []const u8, alloc: std.mem.Allocator) !code.Function {
+    _ = alloc;
+    var builder = Builder{};
+    var reader = Reader{ .data = data };
+
+    while (reader.nextByte()) |byte| {
+        const instr = try std.meta.intToEnum(Instr, byte);
+        std.log.err("{}", .{instr});
+        switch (instr) {
+            .i32_const => {
+                try builder.add(.{ .constant = .{ .i32 = try reader.read(i32) } });
+            },
+            .i64_const => {
+                try builder.add(.{ .constant = .{ .i64 = try reader.read(i64) } });
+            },
+            .f32_const => {
+                try builder.add(.{ .constant = .{ .f32 = try reader.read(f32) } });
+            },
+            .f64_const => {
+                try builder.add(.{ .constant = .{ .f64 = try reader.read(f64) } });
+            },
+
+            else => return error.TODO,
+        }
+    }
+
+    return error.TODO;
+}
+
+test {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const input = "\x41\x00\x21\x02\x03\x40\x02\x40\x20\x02\x20\x01\x4e\x0d\x00\x20\x00\x20\x02\x41\x04\x6c\x6a\x21\x03\x20\x04\x20\x03\x28\x02\x00\x6a\x21\x04\x20\x02\x41\x01\x6a\x21\x02\x0c\x01\x0b\x0b\x20\x04\x0b";
+    _ = try parse(input, arena.allocator());
+}
