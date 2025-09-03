@@ -14,6 +14,17 @@ fn vec(comptime T: type) type {
                 .vals = vals,
             };
         }
+        pub fn format(self: Self, writer: *std.Io.Writer) !void {
+            try writer.print("[{}](", .{self.vals.len});
+            for (self.vals) |v| {
+                if (@hasDecl(T, "format")) {
+                    try writer.print("\n({f}),", .{v});
+                } else {
+                    try writer.print("\n({any}),", .{v});
+                }
+            }
+            try writer.print(")", .{});
+        }
     };
 }
 
@@ -45,7 +56,12 @@ const labelidx = struct { x: i32 };
 
 //5.2.4 Names
 
-const name = vec(u8);
+const name = struct {
+    vals: vec(u8),
+    pub fn format(self: name, writer: *std.Io.Writer) !void {
+        try writer.print("({s})", .{self.vals.vals});
+    }
+};
 
 //5.3.1 Number Types
 
@@ -100,6 +116,21 @@ const functype = struct {
 
 //5.3.7 Limits
 const limits = struct {
+    pub fn parse(reader: *Reader, alloc: std.mem.Allocator) !limits {
+        _ = alloc;
+        const byte = try reader.readByte();
+        const min = try reader.read(u32);
+        const max: ?u32 = switch (byte) {
+            0 => null,
+            1 => try reader.read(u32),
+            else => return error.InvalidLimit,
+        };
+
+        return .{
+            .min = min,
+            .max = max,
+        };
+    }
     min: u32,
     max: ?u32,
 };
@@ -150,6 +181,13 @@ const Section = union(SectionId) {
             mem: memtype,
             global: globaltype,
         };
+        pub fn format(self: Import, writer: *std.Io.Writer) !void {
+            try writer.print("Import(mod:{f}, nm:{f} d:{})", .{
+                self.mod,
+                self.nm,
+                self.d,
+            });
+        }
     };
 
     const Global = struct {
@@ -171,6 +209,9 @@ const Section = union(SectionId) {
             mem: memidx,
             global: globalidx,
         };
+        pub fn format(self: Export, writer: *std.Io.Writer) !void {
+            try writer.print("{f}:{}", .{ self.nm, self.d });
+        }
     };
     const Start = struct {
         x: funcidx,
@@ -202,6 +243,23 @@ const Section = union(SectionId) {
         const code = struct {
             size: u32,
             code: func,
+            pub fn parse(
+                reader: *Reader,
+                alloc: std.mem.Allocator,
+            ) !code {
+                const size = try reader.read(u32);
+                const b = try reader.getBytes(size);
+                var subr = Reader{ .data = b };
+                const l = try subr.parse(vec(locals), alloc);
+                std.log.err("{f}", .{subr});
+                return .{
+                    .size = size,
+                    .code = .{
+                        .l = l,
+                        .e = .{},
+                    },
+                };
+            }
         };
         const func = struct {
             l: vec(locals),
@@ -214,6 +272,18 @@ const Section = union(SectionId) {
     };
     const Data = struct {};
     const DataCount = struct {};
+
+    pub fn format(self: Section, writer: *std.Io.Writer) !void {
+        switch (self) {
+            inline else => |e| {
+                if (@hasDecl(@TypeOf(e), "format")) {
+                    try writer.print("[{f}]", .{e});
+                } else {
+                    try writer.print("[{}]", .{e});
+                }
+            },
+        }
+    }
 };
 
 const Reader = struct {
@@ -239,7 +309,7 @@ const Reader = struct {
     }
 
     pub fn read(self: *Reader, comptime T: type) !T {
-        errdefer std.log.err("Failure Reading {s}", .{@typeName(T)});
+        errdefer std.log.err("Failure Reading [{f}]{s}", .{ self, @typeName(T) });
         switch (@typeInfo(T)) {
             .@"enum" => |e| {
                 const val = try self.read(e.tag_type);
@@ -269,6 +339,30 @@ const Reader = struct {
             .data = bytes,
         };
     }
+    pub fn enum_tag(comptime T: type) type {
+        switch (@typeInfo(T)) {
+            .@"union" => |u| return u.tag_type orelse @compileError("Needs tag type"),
+            else => @compileError("Must Be Union"),
+        }
+    }
+    pub fn parseUnion(
+        self: *Reader,
+        comptime T: type,
+        tag: enum_tag(T),
+        alloc: std.mem.Allocator,
+    ) !T {
+        switch (@typeInfo(T)) {
+            .@"union" => |u| {
+                inline for (u.fields) |f| {
+                    if (std.mem.eql(u8, @tagName(tag), f.name)) {
+                        return @unionInit(T, f.name, try self.parse(f.type, alloc));
+                    }
+                }
+            },
+            else => @compileError("Must be union"),
+        }
+        unreachable;
+    }
 
     pub fn parse(self: *Reader, comptime T: type, alloc: std.mem.Allocator) !T {
         switch (@typeInfo(T)) {
@@ -279,7 +373,11 @@ const Reader = struct {
                 } else {
                     var ret: T = undefined;
                     inline for (s.fields) |f| {
-                        errdefer std.log.err("Failure Reading {s}.{s}", .{ @typeName(T), f.name });
+                        errdefer std.log.err("Failure Reading[{f}] {s}.{s}", .{
+                            self,
+                            @typeName(T),
+                            f.name,
+                        });
                         @field(ret, f.name) = try self.parse(f.type, alloc);
                     }
                     return ret;
@@ -289,12 +387,7 @@ const Reader = struct {
             },
             .@"union" => |u| {
                 const t = try self.read(u.tag_type orelse @compileError("Need Tag"));
-                inline for (u.fields) |f| {
-                    if (std.mem.eql(u8, @tagName(t), f.name)) {
-                        return @unionInit(T, f.name, try self.parse(f.type, alloc));
-                    }
-                }
-                unreachable;
+                return try self.parseUnion(T, t, alloc);
             },
             else => {
                 @compileLog(T);
@@ -304,7 +397,11 @@ const Reader = struct {
     }
 
     pub fn format(self: Reader, writer: *std.Io.Writer) !void {
-        try writer.print("[{}]{x}", .{ self.idx, self.data[self.idx..] });
+        try writer.print("[{}][{x}][{x}]", .{
+            self.idx,
+            self.data[0..self.idx],
+            self.data[self.idx..],
+        });
     }
 };
 
@@ -313,24 +410,16 @@ pub fn read_file(data: []const u8, alloc: std.mem.Allocator) !void {
     try reader.expectSlice("\x00asm");
     try reader.expectSlice("\x01\x00\x00\x00");
 
-    std.log.err("{f}", .{reader});
+    //std.log.err("{f}", .{reader});
     var sections = std.ArrayList(Section){};
     defer sections.deinit(alloc);
     while (try reader.getSection()) |val| {
-        std.log.err("B:[{}]:L[{x}]", .{ val.id, val.data });
+        //std.log.err("B:[{}]:L[{x}]", .{ val.id, val.data });
         var subr = Reader{ .data = val.data };
-        switch (val.id) {
-            .type => {
-                try sections.append(alloc, .{ .type = try subr.parse(vec(functype), alloc) });
-            },
-            .function => {
-                try sections.append(alloc, .{ .function = try subr.parse(vec(typeidx), alloc) });
-            },
-            .@"export" => {
-                try sections.append(alloc, .{ .@"export" = try subr.parse(vec(Section.Export), alloc) });
-            },
-            else => {},
-        }
+        try sections.append(alloc, try subr.parseUnion(Section, val.id, alloc));
+    }
+    for (sections.items) |s| {
+        std.log.err("{f}", .{s});
     }
 }
 
