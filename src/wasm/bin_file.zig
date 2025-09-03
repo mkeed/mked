@@ -86,6 +86,14 @@ const resulttype = vec(valtype);
 
 //5.3.6 Function Types
 const functype = struct {
+    pub fn parse(reader: *Reader, alloc: std.mem.Allocator) !functype {
+        //std.log.err("{f}", .{reader});
+        try reader.expectSlice("\x60");
+        return .{
+            .args = try reader.parse(resulttype, alloc),
+            .ret = try reader.parse(resulttype, alloc),
+        };
+    }
     args: resulttype,
     ret: resulttype,
 };
@@ -123,7 +131,7 @@ const Section = union(SectionId) {
     table: vec(tabletype),
     memory: vec(memtype),
     global: Global,
-    @"export": Export,
+    @"export": vec(Export),
     start: Start,
     element: vec(Element.elem),
     code: vec(Code.code),
@@ -151,7 +159,13 @@ const Section = union(SectionId) {
     const Export = struct {
         nm: name,
         d: exportdesc,
-        const exportdesc = union(enum) {
+        const export_pos = enum(u8) {
+            func = 0,
+            table = 1,
+            mem = 2,
+            global = 3,
+        };
+        const exportdesc = union(export_pos) {
             func: funcidx,
             table: tableidx,
             mem: memidx,
@@ -209,6 +223,7 @@ const Reader = struct {
     fn getBytes(self: *Reader, len: usize) ![]const u8 {
         if (self.idx + len > self.data.len) return error.NotEnough;
         defer self.idx += len;
+        //std.log.err("[{}|{}]Read[{x}]", .{ self.idx, len, self.data[self.idx..][0..len] });
         return self.data[self.idx..][0..len];
     }
     pub fn expectSlice(self: *Reader, data: []const u8) !void {
@@ -219,10 +234,12 @@ const Reader = struct {
     pub fn readByte(self: *Reader) !u8 {
         if (self.idx >= self.data.len) return error.NotEnough;
         defer self.idx += 1;
+        //std.log.err("[{}|{}]ReadByte[{x}]", .{ self.idx, 1, self.data[self.idx] });
         return self.data[self.idx];
     }
 
     pub fn read(self: *Reader, comptime T: type) !T {
+        errdefer std.log.err("Failure Reading {s}", .{@typeName(T)});
         switch (@typeInfo(T)) {
             .@"enum" => |e| {
                 const val = try self.read(e.tag_type);
@@ -255,16 +272,34 @@ const Reader = struct {
 
     pub fn parse(self: *Reader, comptime T: type, alloc: std.mem.Allocator) !T {
         switch (@typeInfo(T)) {
-            .int => return try self.read(T),
-            .@"struct" => |_| {
+            .int, .@"enum" => return try self.read(T),
+            .@"struct" => |s| {
                 if (@hasDecl(T, "parse")) {
                     return try T.parse(self, alloc);
                 } else {
-                    @compileError("TODO");
+                    var ret: T = undefined;
+                    inline for (s.fields) |f| {
+                        errdefer std.log.err("Failure Reading {s}.{s}", .{ @typeName(T), f.name });
+                        @field(ret, f.name) = try self.parse(f.type, alloc);
+                    }
+                    return ret;
+
                     //
                 }
             },
-            else => @compileError("TODO"),
+            .@"union" => |u| {
+                const t = try self.read(u.tag_type orelse @compileError("Need Tag"));
+                inline for (u.fields) |f| {
+                    if (std.mem.eql(u8, @tagName(t), f.name)) {
+                        return @unionInit(T, f.name, try self.parse(f.type, alloc));
+                    }
+                }
+                unreachable;
+            },
+            else => {
+                @compileLog(T);
+                @compileError("TODO");
+            },
         }
     }
 
@@ -279,13 +314,20 @@ pub fn read_file(data: []const u8, alloc: std.mem.Allocator) !void {
     try reader.expectSlice("\x01\x00\x00\x00");
 
     std.log.err("{f}", .{reader});
-
+    var sections = std.ArrayList(Section){};
+    defer sections.deinit(alloc);
     while (try reader.getSection()) |val| {
         std.log.err("B:[{}]:L[{x}]", .{ val.id, val.data });
+        var subr = Reader{ .data = val.data };
         switch (val.id) {
             .type => {
-                const t = try reader.parse(vec(functype), alloc);
-                _ = t;
+                try sections.append(alloc, .{ .type = try subr.parse(vec(functype), alloc) });
+            },
+            .function => {
+                try sections.append(alloc, .{ .function = try subr.parse(vec(typeidx), alloc) });
+            },
+            .@"export" => {
+                try sections.append(alloc, .{ .@"export" = try subr.parse(vec(Section.Export), alloc) });
             },
             else => {},
         }
@@ -293,6 +335,8 @@ pub fn read_file(data: []const u8, alloc: std.mem.Allocator) !void {
 }
 
 test {
-    const file = @embedFile("add.wasm");
-    try read_file(file, std.testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const file = @embedFile("loops.wasm");
+    try read_file(file, arena.allocator());
 }
