@@ -33,7 +33,59 @@ pub const Instruction = union(enum) {
     call_indirect: struct { type: typeidx, table: tableidx },
 
     constant: Value,
+    iunop: struct {
+        len: IntLen,
+        op: enum { clz, ctz, popcnt },
+    },
+    ibinop: struct {
+        len: IntLen,
+        op: enum {
+            add,
+            sub,
+            mul,
+            div_s,
+            rem_s,
+            div_u,
+            rem_u,
+            @"and",
+            @"or",
+            xor,
+            shl,
+            shr_s,
+            shr_u,
+            rotl,
+            rotr,
+        },
+    },
+    itestop: struct {
+        len: IntLen,
+        op: enum { eqz },
+    },
+    irelop: struct {
+        len: IntLen,
+        op: enum { eq, ne, lt_s, lt_u, gt_s, gt_u, le_s, le_u, ge_s, ge_u },
+    },
+    frelop: struct {
+        len: FloatLen,
+        op: enum { eq, ne, lt, gt, le, ge },
+    },
+    load: struct {
+        val: ValueType,
+        src: ?enum { i8, u8, i16, u16, u32, i32 } = null,
+    },
+    store: struct {
+        val: ValueType,
+        dest: ?enum { @"8", @"16", @"32" } = null,
+    },
 };
+
+const memarg = struct {
+    offset: u32,
+    @"align": u32,
+};
+
+const IntLen = enum { @"32", @"64" };
+const FloatLen = enum { @"32", @"64" };
 
 const typeidx = struct { x: i32 };
 const funcidx = struct { x: i32 };
