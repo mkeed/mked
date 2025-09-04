@@ -185,7 +185,7 @@ const Reader = struct {
             .@"struct" => |s| {
                 var ret: T = undefined;
                 inline for (s.fields) |f| {
-                    @field(ret, s.fields) = self.read(f.type);
+                    @field(ret, f.name) = try self.read(f.type);
                 }
 
                 return ret;
@@ -369,29 +369,113 @@ pub fn parse(data: []const u8, alloc: std.mem.Allocator) !code.Function {
             .i32_rotl => try builder.add(.{ .ibinop = .{ .len = .@"32", .op = .rotl } }),
             .i32_rotr => try builder.add(.{ .ibinop = .{ .len = .@"32", .op = .rotr } }),
 
-            .i32_load => try builder.add(.{ .load = .{ .val = .i32 } }),
-            .i64_load => try builder.add(.{ .load = .{ .val = .i64 } }),
-            .f32_load => try builder.add(.{ .load = .{ .val = .f32 } }),
-            .f64_load => try builder.add(.{ .load = .{ .val = .f64 } }),
-            .i32_load_8_s => try builder.add(.{ .load = .{ .val = .i32, .src = .i8 } }),
-            .i32_load_8_u => try builder.add(.{ .load = .{ .val = .i32, .src = .u8 } }),
-            .i32_load_16_s => try builder.add(.{ .load = .{ .val = .i32, .src = .i16 } }),
-            .i32_load_16_u => try builder.add(.{ .load = .{ .val = .i32, .src = .u16 } }),
-            .i64_load_8_s => try builder.add(.{ .load = .{ .val = .i64, .src = .i8 } }),
-            .i64_load_8_u => try builder.add(.{ .load = .{ .val = .i64, .src = .u8 } }),
-            .i64_load_16_s => try builder.add(.{ .load = .{ .val = .i64, .src = .i16 } }),
-            .i64_load_16_u => try builder.add(.{ .load = .{ .val = .i64, .src = .u16 } }),
-            .i64_load_32_s => try builder.add(.{ .load = .{ .val = .i64, .src = .i32 } }),
-            .i64_load_32_u => try builder.add(.{ .load = .{ .val = .i64, .src = .u32 } }),
-            .i32_store => try builder.add(.{ .store = .{ .val = .i32 } }),
-            .i64_store => try builder.add(.{ .store = .{ .val = .i64 } }),
-            .f32_store => try builder.add(.{ .store = .{ .val = .f32 } }),
-            .f64_store => try builder.add(.{ .store = .{ .val = .f64 } }),
-            .i32_store_8 => try builder.add(.{ .store = .{ .val = .i32, .dest = .@"8" } }),
-            .i32_store_16 => try builder.add(.{ .store = .{ .val = .i32, .dest = .@"16" } }),
-            .i64_store_8 => try builder.add(.{ .store = .{ .val = .i64, .dest = .@"8" } }),
-            .i64_store_16 => try builder.add(.{ .store = .{ .val = .i64, .dest = .@"16" } }),
-            .i64_store_32 => try builder.add(.{ .store = .{ .val = .i64, .dest = .@"32" } }),
+            .i32_load => try builder.add(.{ .load = .{
+                .val = .i32,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_load => try builder.add(.{ .load = .{
+                .val = .i64,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .f32_load => try builder.add(.{ .load = .{
+                .val = .f32,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .f64_load => try builder.add(.{ .load = .{
+                .val = .f64,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i32_load_8_s => try builder.add(.{ .load = .{
+                .val = .i32,
+                .src = .i8,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i32_load_8_u => try builder.add(.{ .load = .{
+                .val = .i32,
+                .src = .u8,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i32_load_16_s => try builder.add(.{ .load = .{
+                .val = .i32,
+                .src = .i16,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i32_load_16_u => try builder.add(.{ .load = .{
+                .val = .i32,
+                .src = .u16,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_load_8_s => try builder.add(.{ .load = .{
+                .val = .i64,
+                .src = .i8,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_load_8_u => try builder.add(.{ .load = .{
+                .val = .i64,
+                .src = .u8,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_load_16_s => try builder.add(.{ .load = .{
+                .val = .i64,
+                .src = .i16,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_load_16_u => try builder.add(.{ .load = .{
+                .val = .i64,
+                .src = .u16,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_load_32_s => try builder.add(.{ .load = .{
+                .val = .i64,
+                .src = .i32,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_load_32_u => try builder.add(.{ .load = .{
+                .val = .i64,
+                .src = .u32,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i32_store => try builder.add(.{ .store = .{
+                .val = .i32,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_store => try builder.add(.{ .store = .{
+                .val = .i64,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .f32_store => try builder.add(.{ .store = .{
+                .val = .f32,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .f64_store => try builder.add(.{ .store = .{
+                .val = .f64,
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i32_store_8 => try builder.add(.{ .store = .{
+                .val = .i32,
+                .dest = .@"8",
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i32_store_16 => try builder.add(.{ .store = .{
+                .val = .i32,
+                .dest = .@"16",
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_store_8 => try builder.add(.{ .store = .{
+                .val = .i64,
+                .dest = .@"8",
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_store_16 => try builder.add(.{ .store = .{
+                .val = .i64,
+                .dest = .@"16",
+                .mem = try reader.read(code.memarg),
+            } }),
+            .i64_store_32 => try builder.add(.{ .store = .{
+                .val = .i64,
+                .dest = .@"32",
+                .mem = try reader.read(code.memarg),
+            } }),
             else => return error.TODO,
         }
     }

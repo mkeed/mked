@@ -72,14 +72,16 @@ pub const Instruction = union(enum) {
     load: struct {
         val: ValueType,
         src: ?enum { i8, u8, i16, u16, u32, i32 } = null,
+        mem: memarg,
     },
     store: struct {
         val: ValueType,
         dest: ?enum { @"8", @"16", @"32" } = null,
+        mem: memarg,
     },
 };
 
-const memarg = struct {
+pub const memarg = struct {
     offset: u32,
     @"align": u32,
 };
