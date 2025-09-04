@@ -27,6 +27,7 @@ const Instr = enum(u8) {
     loop = 3,
     @"if" = 4,
     @"else" = 5,
+    end_block = 0x0b,
     br = 0x0c,
     br_if = 0x0d,
     br_table = 0x0e,
@@ -211,6 +212,7 @@ const Reader = struct {
 const Builder = struct {
     const Block = struct {
         instructions: std.ArrayList(code.Instruction),
+        parent_block: ?u32,
     };
     alloc: std.mem.Allocator,
     blocks: std.ArrayList(*Block),
@@ -218,7 +220,7 @@ const Builder = struct {
     pub fn init(alloc: std.mem.Allocator) !Builder {
         const b = try alloc.create(Block);
         errdefer alloc.destroy(b);
-        b.* = .{ .instructions = std.ArrayList(code.Instruction){} };
+        b.* = .{ .instructions = std.ArrayList(code.Instruction){}, .parent_block = null };
         var build = Builder{
             .alloc = alloc,
             .blocks = std.ArrayList(*Block){},
@@ -232,12 +234,21 @@ const Builder = struct {
         std.log.err("[{}]", .{instr});
     }
     pub fn push_block(self: *Builder) !code.BlockIdx {
+        const parent = self.active_block;
         const block_id: u32 = @intCast(self.blocks.items.len);
         const b = try self.alloc.create(Block);
-        b.* = .{ .instructions = std.ArrayList(code.Instruction){} };
+        b.* = .{ .instructions = std.ArrayList(code.Instruction){}, .parent_block = parent };
         try self.blocks.append(self.alloc, b);
         self.active_block = block_id;
         return .{ .idx = block_id };
+    }
+    pub fn pop_block(self: *Builder) ?u32 {
+        std.log.err("pop block", .{});
+        const block = self.blocks.items[self.active_block];
+        if (block.parent_block) |pb| {
+            self.active_block = pb;
+        }
+        return block.parent_block;
     }
 };
 
@@ -310,6 +321,21 @@ pub fn parse(data: []const u8, alloc: std.mem.Allocator) !code.Function {
             },
             .br => {
                 try builder.add(.{ .branch = .{ .labelidx = try reader.read(u32) } });
+            },
+            .end_block => {
+                if (builder.pop_block()) |pb| {
+                    _ = pb;
+                } else {
+                    const func = code.Function{
+                        .blocks = try alloc.alloc(code.Block, builder.blocks.items.len),
+                    };
+                    for (func.blocks, 0..) |*b, idx| {
+                        b.* = .{
+                            .instructions = try builder.blocks.items[idx].instructions.toOwnedSlice(alloc),
+                        };
+                    }
+                    return func;
+                }
             },
             .i32_eqz => try builder.add(.{ .itestop = .{ .len = .@"32", .op = .eqz } }),
             .i32_eq => try builder.add(.{ .irelop = .{ .len = .@"32", .op = .eq } }),

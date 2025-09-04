@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const Function = struct {
-    blocks: []const Block,
+    blocks: []Block,
 };
 
 pub const Block = struct {
