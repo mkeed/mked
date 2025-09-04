@@ -152,7 +152,7 @@ const globaltype = struct {
     mut: enum(u8) { @"const" = 0, @"var" = 1 },
 };
 
-const expr = struct {};
+const expr = @import("code.zig").expr;
 
 const Section = union(SectionId) {
     custom: Custom,
@@ -251,12 +251,12 @@ const Section = union(SectionId) {
                 const b = try reader.getBytes(size);
                 var subr = Reader{ .data = b };
                 const l = try subr.parse(vec(locals), alloc);
-                std.log.err("{f}", .{subr});
+                std.log.err("expr:{f}", .{subr});
                 return .{
                     .size = size,
                     .code = .{
                         .l = l,
-                        .e = .{},
+                        .e = try @import("bin_code.zig").parse(subr.rest(), alloc),
                     },
                 };
             }
@@ -307,7 +307,9 @@ const Reader = struct {
         //std.log.err("[{}|{}]ReadByte[{x}]", .{ self.idx, 1, self.data[self.idx] });
         return self.data[self.idx];
     }
-
+    pub fn rest(self: *Reader) []const u8 {
+        return self.data[self.idx..];
+    }
     pub fn read(self: *Reader, comptime T: type) !T {
         errdefer std.log.err("Failure Reading [{f}]{s}", .{ self, @typeName(T) });
         switch (@typeInfo(T)) {

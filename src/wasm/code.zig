@@ -1,7 +1,12 @@
 const std = @import("std");
 
-pub const Function = struct {
+pub const expr = struct {
     blocks: []Block,
+    pub fn parse(reader: anytype, alloc: std.mem.Allocator) !expr {
+        _ = alloc;
+        _ = reader;
+        return error.TODO;
+    }
 };
 
 pub const Block = struct {

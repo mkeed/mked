@@ -252,7 +252,7 @@ const Builder = struct {
     }
 };
 
-pub fn parse(data: []const u8, alloc: std.mem.Allocator) !code.Function {
+pub fn parse(data: []const u8, alloc: std.mem.Allocator) !code.expr {
     var builder = try Builder.init(alloc);
     var reader = Reader{ .data = data };
 
@@ -326,7 +326,7 @@ pub fn parse(data: []const u8, alloc: std.mem.Allocator) !code.Function {
                 if (builder.pop_block()) |pb| {
                     _ = pb;
                 } else {
-                    const func = code.Function{
+                    const func = code.expr{
                         .blocks = try alloc.alloc(code.Block, builder.blocks.items.len),
                     };
                     for (func.blocks, 0..) |*b, idx| {
