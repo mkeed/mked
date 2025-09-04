@@ -52,7 +52,7 @@ const Instr = enum(u8) {
     local_set = 0x21,
     local_tee = 0x22,
     global_get = 0x23,
-    gloval_set = 0x24,
+    global_set = 0x24,
 
     //5.4.5 Table Instructions
     table_get = 0x25,
@@ -149,21 +149,45 @@ const Reader = struct {
 };
 
 const Builder = struct {
-    count: usize = 0,
+    const Block = struct {
+        instructions: std.ArrayList(code.Instruction),
+    };
+    alloc: std.mem.Allocator,
+    blocks: std.ArrayList(*Block),
+    active_block: u32,
+    pub fn init(alloc: std.mem.Allocator) !Builder {
+        const b = try alloc.create(Block);
+        errdefer alloc.destroy(b);
+        b.* = .{ .instructions = std.ArrayList(code.Instruction){} };
+        var build = Builder{
+            .alloc = alloc,
+            .blocks = std.ArrayList(*Block){},
+            .active_block = 0,
+        };
+        try build.blocks.append(alloc, b);
+        return build;
+    }
     pub fn add(self: *Builder, instr: code.Instruction) !void {
-        defer self.count += 1;
-        std.log.err("[{}][{}]", .{ self.count, instr });
+        try self.blocks.items[self.active_block].instructions.append(self.alloc, instr);
+        std.log.err("[{}]", .{instr});
+    }
+    pub fn push_block(self: *Builder) !code.BlockIdx {
+        const block_id: u32 = @intCast(self.blocks.items.len);
+        const b = try self.alloc.create(Block);
+        b.* = .{ .instructions = std.ArrayList(code.Instruction){} };
+        try self.blocks.append(self.alloc, b);
+        self.active_block = block_id;
+        return .{ .idx = block_id };
     }
 };
 
 pub fn parse(data: []const u8, alloc: std.mem.Allocator) !code.Function {
-    _ = alloc;
-    var builder = Builder{};
+    var builder = try Builder.init(alloc);
     var reader = Reader{ .data = data };
 
     while (reader.nextByte()) |byte| {
         const instr = try std.meta.intToEnum(Instr, byte);
-        std.log.err("{}", .{instr});
+        errdefer std.log.err("{}", .{instr});
         switch (instr) {
             .i32_const => {
                 try builder.add(.{ .constant = .{ .i32 = try reader.read(i32) } });
@@ -176,6 +200,43 @@ pub fn parse(data: []const u8, alloc: std.mem.Allocator) !code.Function {
             },
             .f64_const => {
                 try builder.add(.{ .constant = .{ .f64 = try reader.read(f64) } });
+            },
+            .local_get => {
+                try builder.add(.{
+                    .local = .{ .idx = try reader.read(u32), .action = .get },
+                });
+            },
+            .local_set => {
+                try builder.add(.{
+                    .local = .{ .idx = try reader.read(u32), .action = .set },
+                });
+            },
+            .local_tee => {
+                try builder.add(.{
+                    .local = .{ .idx = try reader.read(u32), .action = .tee },
+                });
+            },
+            .global_get => {
+                try builder.add(.{
+                    .global = .{ .idx = try reader.read(u32), .action = .get },
+                });
+            },
+            .global_set => {
+                try builder.add(.{
+                    .global = .{ .idx = try reader.read(u32), .action = .set },
+                });
+            },
+            .block => {
+                const block_id = try builder.push_block();
+                try builder.add(.{ .block = block_id });
+            },
+            .loop => {
+                const block_id = try builder.push_block();
+                try builder.add(.{ .loop = block_id });
+            },
+            .@"if" => {
+                const block_id = try builder.push_block();
+                try builder.add(.{ .block = block_id });
             },
 
             else => return error.TODO,

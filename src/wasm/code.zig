@@ -19,8 +19,8 @@ pub const Value = union(ValueType) {
 
 pub const BlockIdx = struct { idx: u32 };
 pub const Instruction = union(enum) {
-    local: enum { get, set, tee },
-    global: enum { get, set },
+    local: struct { idx: u32, action: enum { get, set, tee } },
+    global: struct { idx: u32, action: enum { get, set } },
     block: BlockIdx,
     loop: BlockIdx,
     @"if": struct { if_block: BlockIdx, else_block: ?BlockIdx },
